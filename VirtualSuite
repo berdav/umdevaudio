@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+function usage(){
+	echo 'usage:'
+	echo $0 '[cardNo] [-p protocolNo] [-c ctlpath]'
+}
+
+ALSACONFPATH=/usr/share/alsa
+ALSACONF=alsa.conf
+VIEWFS=viewfs
+function mountVirtualConf (){
+	um_add_service $VIEWFS;
+	mount -t $VIEWFS $1 $ALSACONFPATH/$ALSACONF;
+	echo "mounted file $UMALSACONF on $ALSACONFPATH/$ALSACONF";
+}
+
+if [[ $1 == "help" ]]; then
+	usage;
+fi;
+if [[ $# < 1 ]]; then
+	usage;
+fi;
+
+#check if we are in a umview environment
+#echo `vuname -V`
+if [[ -z `vuname -V` ]]; then
+	#relaunch in the umview environment
+	umview -t bash --rcfile <(echo "export PS1='`whoami`@umview \w => '&& ./$0 $@")
+	exit
+fi;
+
+ARGUMS=`getopt -o v:p:c:m:P:o: --long protocol:,control:,pcm-path:,virtual-conf:,mixer-size:,playcap:,outfile: -- "$@"`;
+
+CARDNO=${1:-'0'};
+
+#define audio protocol is 2.0.2 because version < 2.0.2 uses old ioctls and is unsupported
+#	TODO implement this IOCTLs (REFINE_OLD and PARAMS_OLD)
+#revision 2 : using 2.0.7 lend to a _IOCTL_TSTAMP request
+#	TODO implement this IOCTL
+#revision 3 : I want my virtual card work actually like my real soundcard (HDA Intel AD198x Analog)
+#	so I've switched to audio protocol 2.0.10
+PMAJ=2;PMIN=0;PSUB=10;
+DEVICENO=0;
+CTL_SIZE=1;
+
+SNDPATH=/dev/snd
+CTLPATH=$SNDPATH/controlC$CARDNO
+#play/capture flag
+#PLAYCAP='p';
+#tinypcminfo suggest c
+PCMPATH=$SNDPATH/pcmC"$CARDNO"D"$DEVICENO" #"$PLAYCAP"
+
+eval set -- "$ARGUMS"
+
+#line parser
+while true; do
+	case "$1" in
+		-v|--protocol)
+			PNUM="$2";
+			PMAJ=`echo $PNUM|awk -F '.' '{print $1}'`
+			PMIN=`echo $PNUM|awk -F '.' '{print $2}'`
+			PSUB=`echo $PNUM|awk -F '.' '{print $3}'`
+			shift 2;
+		;;
+		-m|--mixer-size)
+			CTL_SIZE="$2";
+			shift 2;
+		;;
+		-c|--control)
+			SNDPATH='';
+			CTLPATH="$2";
+			shift 2;
+		;;
+		-p|--pcm-path)
+			SNDPATH='';
+			PCMPATH="$2";
+			shift 2;
+		;;	
+		--virtual-conf)
+			UMALSACONF="$2";
+			shift 2;
+			mountVirtualConf $UMALSACONF;
+		;;
+		-P|--playcap)
+			PLAYCAP="$2";
+			shift 2;
+		;;
+		-o|--outfile)
+			OUTFILE="$2";
+			shift 2;
+		;;
+		--)
+			break;
+		;;
+	esac;
+done
+
+SERVICE=umdev;
+VIEWFS=viewfs
+
+#CTLMODULE=umdevtrivhd;
+CTLMODULE=umdevaudioCtl
+
+PCMMODULE=umdevaudioPcm
+
+CONFFILE=~/.umdevaudiorc;
+
+if [[ -n $OUTFILE ]]; then
+	CTLOPTIONS=card:$CARDNO,version:$PMAJ.$PMIN.$PSUB,controls:$CTL_SIZE,file:$OUTFILE,configrc:$CONFFILE;
+	PCMOPTIONS=card:$CARDNO,version:$PMAJ.$PMIN.$PSUB,controls:$CTL_SIZE,playcap:$PLAYCAP,file:$OUTFILE,configrc:$CONFFILE
+else
+	CTLOPTIONS=card:$CARDNO,version:$PMAJ.$PMIN.$PSUB,controls:$CTL_SIZE,configrc:$CONFFILE;
+	PCMOPTIONS=card:$CARDNO,version:$PMAJ.$PMIN.$PSUB,controls:$CTL_SIZE,playcap:$PLAYCAP,configrc:$CONFFILE
+fi;
+
+um_add_service $SERVICE
+
+mount -t $CTLMODULE -o $CTLOPTIONS none $CTLPATH
+echo "mounted ctl on $CTLPATH"
+mount -t $PCMMODULE -o $PCMOPTIONS none $PCMPATH$PLAYCAP
+
+if [[ $PLAYCAP = "p" ]]; then
+	PLAYPROMPT="playback";
+elif [[ $PLAYCAP = "c" ]]; then
+	PLAYPROMPT="capture"
+fi;
+echo "mounted pcm $PLAYPROMPT subdevice on $PCMPATH$PLAYCAP"

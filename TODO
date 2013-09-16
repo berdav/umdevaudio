@@ -1,0 +1,16 @@
+#Berardi Davide 2013
+
+umdevaudio todo:
+
+mmap problem related to tinyalsa/ALSA
+
+compatibility with ALSA
+compatibility with OSS
+
+upscaling/downscaling of channels (the request is 5.1 to 2 but we can do it scalable)
+multisource support for the device (like the pulseaudio/jack one)
+
+porting Android
+
+writen/readn ioctl support
+
